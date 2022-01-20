@@ -1,0 +1,174 @@
+---
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## *Huiyan LI* **s4665113** 
+
+***
+# Assignment 2
+***
+
+### 1. Display the first 10 rows of the dataset using `kable()` function.
+```{r code-1}
+# load dataset
+# data_url = 'https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2018/2018-11-20/thanksgiving_meals.csv'
+data_url = './thanksgiving_meals.csv'
+meals = read_csv(data_url)
+knitr::kable(meals[1:10, ])
+```
+
+
+### 2. Using `skim()` display the summary of variables
+```{r code-2}
+skimr::skim(meals)
+```
+
+The variables related to the types of main dish, the region variable, and the diversity of side dishes and desserts could be useful for the task to predict a family income based on their menu. The variables related to income ranges and diversity of the dishes could be useful for the task to predict a community type or us_region based on their menu.
+
+
+### 3. Use `fct_reorder` and `parse_number` functions to create a factor variable `family_income`.
+```{r code-3}
+meals2 = meals %>%
+  mutate(family_income = na_if(family_income, "Prefer not to answer")) %>%
+  mutate(family_income = fct_reorder(family_income, parse_number(family_income)))
+```
+
+
+### 4. What is the number of people who celebrate?
+Among the 1,058 respondents who participated in the SurveyMonkey poll, the number of people who celebrate Thanksgiving is 980.
+```{r code-4}
+table(meals2$celebrate)
+```
+
+
+### 5. What are categories and insights for each main dish served and the method it is prepared?
+```{r code-5}
+# drop NAs or uninformative rows
+tmp = meals2 %>%
+  select(id, main_dish, main_prep) %>%
+  drop_na() %>%
+  filter(main_dish != "I don't know" & 
+           main_dish != "Other (please specify)" &
+           main_prep != "I don't know" &
+           main_prep != "Other (please specify)")
+table(tmp$main_dish, tmp$main_prep)
+```
+
+The categories of the main dishes served are Turkey, Turducken, Tofurkey, Roast Beef, Ham/Pork and Chicken, which are prepared in three major methods including baking, frying and roasting. We can see that most of the respondents prefer to Turkey as the main dish. For the respondents choosing Turkey, the prepared methods for the main dish primarily include baking and roasting.
+
+
+### 6. Create 3 different data viz showing insights for main dish served and the method. Provide your own legend and use themes.
+```{r code-6}
+ggplot(tmp, aes(main_dish)) +
+  geom_bar() +
+  xlab("Main dish") + ylab("Number of respondents") +
+  theme_bw()
+
+ggplot(tmp, aes(main_prep)) +
+  geom_bar() +
+  xlab("Methods of preparation") + ylab("Number of respondents") +
+  theme_bw()  
+
+ggplot(tmp, aes(main_dish)) +
+  geom_bar(aes(fill = main_prep), position = "dodge") +
+    xlab("Main dish") + ylab("Number of respondents") +
+  theme_bw()  
+```
+
+
+### 7. How many use cranberry sauce? How many use gravy?
+```{r code-7}
+# cranberry sauce
+sum(na.omit(meals2$cranberry != 'None'))
+# gravy
+table(meals2$gravy)
+```
+
+The number of respondents who use cranberry sauce and gravy is 828 and 892, respectively.
+
+
+### 8-9. What is the distribution of those who celebrate across income ranges. Create a data viz and explain each insight.
+```{r code-8-9}
+meals2 %>% 
+  filter(!is.na(family_income)) %>%
+  ggplot(aes(y = family_income)) +
+  geom_bar() +
+  ylab("Income ranges") + xlab("Number of respondents") +
+  theme_bw()  
+```
+
+From the above figure, we observe that the family income of the respondents is primarily between \$25,000 and \$124,999. The number of respondents across the different income ranges achieves the highest in the income range of \$25,000~\$49,999.
+
+
+### 10. Use the following code to create a new data set and explain what it does.
+```{r code-10}
+meals3 = meals2 %>%
+  select(id, starts_with("side"), 
+         starts_with("pie"),
+         starts_with("dessert")) %>%
+  select(-side15, -pie3, -dessert12) %>%
+  gather(type, value, -id) %>%
+  filter(!is.na(value), 
+         !value %in% c("None", "Other (please specify)")) %>%
+  mutate(type = str_remove(type, "\\d+"))
+```
+Four main steps are performed on the `meals2` data: (1) select the `id` variable and the variables that have the column name staring with `side` (except `side15`), `pie` (except `pie3`) and `dessert` (except `dessert12`); (2) transform the selected data in wide form to a long data.frame; (3) drop the rows where the `value` variable are NA or uninformative; (4) remove the digits in the `type` variable.
+
+
+### 11-12. Install package `widyr` and use `pairwise_cor()` function. Explain what it does and use the function for the new dataset.
+```{r code-11-12}
+# install.packages("widyr")
+library(widyr)
+pairwise_cor(meals3, value, id, sort = TRUE)
+```
+The `pairwise_cor()` function find correlations of pairs for the items in a column based on a feature column. The above output shows the correlation for each pair of food items (include side dishes, pies and desserts), meaning how likely the two items will simultaneously be prepared by the respondents. From the results, we can see that both Cookies and Brownies are the most likely on the dinner table of the respondents.
+
+
+### 13. Use `lm()` or `randomForest()` function to build a model that predict a family income based on data in the dataset. Compare 3 models using different set of input variables or different number of variables. Explain your choice of variables and which model is best.
+```{r code-13}
+library(randomForest)
+# computed variables for use in models
+side = is.na(meals2 %>% select(starts_with("side"))) + 0
+pie = is.na(meals2 %>% select(starts_with("pie"))) + 0
+dessert = is.na(meals2 %>% select(starts_with("dessert"))) + 0
+side_num = rowSums(side) # number of side dishes
+pie_num = rowSums(pie) # number of pies 
+dessert_num = rowSums(dessert) # number desserts
+
+# selected variables
+vars0 = c("id", "family_income", "celebrate", 
+          "main_dish", "community_type", "us_region")
+mealdata0 = meals2 %>% 
+  select(all_of(vars0)) %>%
+  mutate(side_num_v = side_num,
+         pie_num_v = pie_num,
+         dessert_num_v = dessert_num) %>%
+  drop_na()
+
+# split the data (20% for testing)
+set.seed(1234)
+idx = sample(1:nrow(mealdata0), size = 0.2 * nrow(mealdata0), replace = F)
+data_train = mealdata0[-idx, ]
+data_test = mealdata0[idx, ]
+
+# build models
+m1 = randomForest(family_income~celebrate+main_dish+community_type+us_region+
+                    side_num_v+pie_num_v+dessert_num_v, data = data_train)
+m2 = randomForest(family_income~community_type+us_region+ 
+                    side_num_v+pie_num_v+dessert_num_v, data = data_train)
+m3 = randomForest(family_income~celebrate+main_dish+community_type+us_region,
+                  data = data_train)
+m1_pred = predict(m1, data_test)
+m2_pred = predict(m2, data_test)
+m3_pred = predict(m3, data_test)
+cat("model 1 accuracy: ", mean(m1_pred == data_test$family_income))
+cat("model 2 accuracy: ", mean(m2_pred == data_test$family_income))
+cat("model 3 accuracy: ", mean(m3_pred == data_test$family_income))
+```
+
+There are many variables characterizing the food items of side dishes, pies and desserts in the data. These variables contains many NAs. The number of food items prepared for celebrating Thanksgiving may indicate the family income ranges of the respondents. Three variables `side_num`, `pie_num` and `dessert_num` were computed and the three variables represent the number of items for the three categories of food including side dishes, pies and desserts. The two variables `us_region` and `community_type` that relates to geographic regions are selected as the economic activity and development are severely different across the regions. To predict or classify the income ranges (`familiy_income`), three models with different combinations of the selected variables were built (see the above code) using 80% samples of the data, with the remaining 20% samples used as testing dataset. Overall classification accuracy for the three models were computed. We can see that the three built models are not useful for predicting the income ranges. It may be inferred that the variables (nearly all categorical types) provided in the data are not well characterize the income ranges of the respondents. The model with the highest accuracy is `m2', which used the location-related variables and three variables characterizing the number of food items. 
